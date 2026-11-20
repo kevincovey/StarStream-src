@@ -86,7 +86,16 @@ class KernelPDF(object):
                     m.flatten() for m in group_mesh
                 ])
                 
-                group_prob = kde(group_data, group_mesh_flatten, group_h)
+                # evaluate on the grid in chunks to bound peak memory
+                # (identical result, just a smaller temporary array)
+                n_mesh = len(group_mesh_flatten)
+                step = max(1, int(
+                    2e7 // max(1, len(group_data)*len(group))
+                ))
+                group_prob = np.concatenate([
+                    kde(group_data, group_mesh_flatten[i:i+step], group_h)
+                    for i in range(0, n_mesh, step)
+                ])
                 group_prob = group_prob.reshape(group_mesh[0].shape)
                 self.pdfs.append(RegularGridInterpolator(
                     group_grid,
@@ -95,21 +104,44 @@ class KernelPDF(object):
                     fill_value=0
                 ))
 
-    def eval_pdf(self, data_eval, err_eval=None):
+    def eval_pdf(self, data_eval, err_eval=None, chunk_size=None,
+        max_elements=2e7):
         """
         data_eval: array-like (N, M): N data points with M dimensions
         err_eval: array-like (N, M): N data points with M dimensions
             err_eval not used in direct KDE mode
+        chunk_size: number of evaluation points per direct-KDE pass,
+            default: None -> chosen automatically from max_elements.
+            Chunking only limits peak memory; the result is unchanged.
+        max_elements: target number of elements in the largest temporary
+            array of the direct KDE, default: 2e7 (~160 MB of float64)
         """
-        prob = np.ones(len(data_eval))
+        data_eval = np.asarray(data_eval)
+        n_eval = len(data_eval)
+
+        prob = np.ones(n_eval)
         for group, pdf in zip(self.groups, self.pdfs):
             group_grid = [self.grids[i] for i in group]
             if group_grid[0] is None:
+                # direct KDE: evaluate in chunks to bound peak memory
                 if err_eval is None:
                     err = np.zeros_like(data_eval[:,group])
                 else:
-                    err = err_eval[:,group]
-                prob *= pdf(Xeval=data_eval[:,group], error=err)
+                    err = np.asarray(err_eval)[:,group]
+
+                if chunk_size is None:
+                    # the KDE builds (N_data, n_chunk, len(group)) temporaries
+                    step = max(1, int(
+                        max_elements // max(1, self.N*len(group))
+                    ))
+                else:
+                    step = max(1, int(chunk_size))
+
+                for i in range(0, n_eval, step):
+                    sl = slice(i, i+step)
+                    prob[sl] *= pdf(
+                        Xeval=data_eval[sl,:][:,group], error=err[sl]
+                    )
             else:
                 prob *= pdf(data_eval[:,group])
         return prob
@@ -226,10 +258,6 @@ class GaiaBackgroundPDF(KernelPDF):
         seed: random seed
         """
 
-        dx = 0.5 # in deg
-        dmu = 1.0 # in mas/yr
-        dcolor = 0.1
-        dmag = 0.1
         grids = [
             np.arange(field_range[0],field_range[1]+0.1,dx), 
             np.arange(field_range[0],field_range[1]+0.1,dx), 

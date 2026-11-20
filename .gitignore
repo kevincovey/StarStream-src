@@ -1,5 +1,13 @@
 examples/data/mock_dataset.txt
 
+# Large Gaia query products -- too big for GitHub (100 MB limit).
+# Regenerate with the ADQL queries recorded in the example notebooks.
+examples/data/NGC6569.vot
+examples/data/Pleaides_ala_Heyl.csv
+
+# local backup files
+*.bak
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

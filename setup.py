@@ -11,7 +11,7 @@ with open("StarStream/version.py") as fp:
 
 setup(
     name = "StarStream",
-    packages = find_packages(where="StarStream"),
+    packages = find_packages(include=["StarStream", "StarStream.*"]),
     version = version["__version__"],
     url = "https://github.com/ybillchen/StarStream",
     license = "BSD-3-Clause",
